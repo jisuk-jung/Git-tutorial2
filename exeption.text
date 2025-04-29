@@ -1,0 +1,739 @@
+using System;
+
+public class CustomAppException : Exception
+{
+    public string ErrorCode { get; }
+    public string UserMessage { get; }
+    public string SystemMessage => base.Message;
+
+    public CustomAppException(string errorCode, string userMessage, string systemMessage, Exception innerException = null)
+        : base(systemMessage, innerException)
+    {
+        ErrorCode = errorCode;
+        UserMessage = userMessage;
+    }
+}
+
+
+
+using System;
+using System.Text.Json;
+using System.Collections.Generic;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        try
+        {
+            Level1();
+        }
+        catch (Exception ex)
+        {
+            var log = BuildJsonLog(ex);
+            string jsonOutput = JsonSerializer.Serialize(log, new JsonSerializerOptions { WriteIndented = true });
+            Console.WriteLine("예외 JSON 로그:");
+            Console.WriteLine(jsonOutput);
+        }
+    }
+
+    static void Level1()
+    {
+        try
+        {
+            Level2();
+        }
+        catch (Exception ex)
+        {
+            throw new CustomAppException("E1001", "시스템 오류가 발생했습니다. 잠시 후 다시 시도해주세요.", "Level1 처리 중 내부 예외", ex);
+        }
+    }
+
+    static void Level2()
+    {
+        try
+        {
+            Level3();
+        }
+        catch (Exception ex)
+        {
+            throw new CustomAppException("E2001", "처리 중 문제가 발생했습니다.", "Level2에서 예외 발생", ex);
+        }
+    }
+
+    static void Level3()
+    {
+        try
+        {
+            throw new InvalidOperationException("DB 연결 실패");
+        }
+        catch (Exception ex)
+        {
+            throw new CustomAppException("E3001", "서비스에 일시적인 문제가 있습니다.", "Level3에서 DB 예외 발생", ex);
+        }
+    }
+
+    static Dictionary<string, object> BuildJsonLog(Exception ex)
+    {
+        var log = new Dictionary<string, object>
+        {
+            ["type"] = ex.GetType().FullName,
+            ["systemMessage"] = ex.Message,
+            ["stackTrace"] = ex.StackTrace
+        };
+
+        if (ex is CustomAppException customEx)
+        {
+            log["errorCode"] = customEx.ErrorCode;
+            log["userMessage"] = customEx.UserMessage;
+        }
+
+        log["innerException"] = ex.InnerException != null ? BuildJsonLog(ex.InnerException) : null;
+
+        return log;
+    }
+}
+
+
+
+
+{
+  "type": "CustomAppException",
+  "systemMessage": "Level1 처리 중 내부 예외",
+  "stackTrace": "...",
+  "errorCode": "E1001",
+  "userMessage": "시스템 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+  "innerException": {
+    "type": "CustomAppException",
+    "systemMessage": "Level2에서 예외 발생",
+    "stackTrace": "...",
+    "errorCode": "E2001",
+    "userMessage": "처리 중 문제가 발생했습니다.",
+    "innerException": {
+      "type": "CustomAppException",
+      "systemMessage": "Level3에서 DB 예외 발생",
+      "stackTrace": "...",
+      "errorCode": "E3001",
+      "userMessage": "서비스에 일시적인 문제가 있습니다.",
+      "innerException": {
+        "type": "System.InvalidOperationException",
+        "systemMessage": "DB 연결 실패",
+        "stackTrace": "...",
+        "innerException": null
+      }
+    }
+  }
+}
+
+
+
+
+
+
+
+
+
+===========================================================================================================================
+public class CustomAppException : Exception
+{
+    public string ErrorCode { get; }
+    public string UserMessage { get; }
+    public string SystemMessage => base.Message;
+
+    public CustomAppException(string errorCode, string userMessage, string systemMessage, Exception innerException = null)
+        : base(systemMessage, innerException)
+    {
+        ErrorCode = errorCode;
+        UserMessage = userMessage;
+    }
+}
+
+
+
+
+
+
+
+
+using System;
+using Serilog;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        // Serilog 설정
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Debug()
+            .WriteTo.Console()
+            .WriteTo.File("logs/log.txt", rollingInterval: RollingInterval.Day)
+            .CreateLogger();
+
+        try
+        {
+            Level1();
+        }
+        catch (Exception ex)
+        {
+            LogException(ex);
+        }
+
+        Log.CloseAndFlush();
+    }
+
+    static void Level1()
+    {
+        try
+        {
+            Level2();
+        }
+        catch (Exception ex)
+        {
+            throw new CustomAppException("E1001", "알 수 없는 오류가 발생했습니다.", "Level1 처리 실패", ex);
+        }
+    }
+
+    static void Level2()
+    {
+        try
+        {
+            Level3();
+        }
+        catch (Exception ex)
+        {
+            throw new CustomAppException("E2001", "데이터 처리 중 문제가 발생했습니다.", "Level2 내부 오류", ex);
+        }
+    }
+
+    static void Level3()
+    {
+        try
+        {
+            throw new InvalidOperationException("DB 연결 실패");
+        }
+        catch (Exception ex)
+        {
+            throw new CustomAppException("E3001", "일시적인 서버 오류입니다.", "Level3 DB 실패", ex);
+        }
+    }
+
+    static void LogException(Exception ex)
+    {
+        if (ex is CustomAppException customEx)
+        {
+            Log.Error(ex, "에러 발생: {ErrorCode} | 사용자 메시지: {UserMessage} | 시스템 메시지: {SystemMessage}",
+                customEx.ErrorCode,
+                customEx.UserMessage,
+                customEx.SystemMessage);
+        }
+        else
+        {
+            Log.Error(ex, "일반 예외 발생: {Message}", ex.Message);
+        }
+    }
+}
+
+
+
+
+
+[14:30:01 ERR] 에러 발생: E1001 | 사용자 메시지: 알 수 없는 오류가 발생했습니다. | 시스템 메시지: Level1 처리 실패
+System.Exception: Level1 처리 실패
+ ---> CustomAppException: Level2 내부 오류
+ ---> CustomAppException: Level3 DB 실패
+ ---> System.InvalidOperationException: DB 연결 실패
+   at Program.Level3()...
+
+
+
+
+
+
+
+
+   =======================================================================================================================
+
+   using System;
+
+public class CustomAppException : Exception
+{
+    public int ErrorCode { get; }
+    public string UserMessage { get; }
+    public string SystemMessage { get; }
+
+    public CustomAppException(int errorCode, string userMessage, string systemMessage, Exception innerException = null)
+        : base(systemMessage, innerException)
+    {
+        ErrorCode = errorCode;
+        UserMessage = userMessage;
+        SystemMessage = systemMessage;
+    }
+
+    public override string ToString()
+    {
+        return $"[ErrorCode: {ErrorCode}] {UserMessage} (System: {SystemMessage})";
+    }
+}
+
+
+
+using System;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        try
+        {
+            Level1();
+        }
+        catch (CustomAppException ex)
+        {
+            Console.WriteLine("Main에서 사용자 정의 예외 처리됨:");
+            Console.WriteLine("에러 코드: " + ex.ErrorCode);
+            Console.WriteLine("사용자 메시지: " + ex.UserMessage);
+            Console.WriteLine("시스템 메시지: " + ex.SystemMessage);
+            Console.WriteLine("스택 트레이스:\n" + ex.StackTrace);
+
+            // InnerException 출력 (선택)
+            Exception inner = ex.InnerException;
+            while (inner != null)
+            {
+                Console.WriteLine("\n--- Inner Exception ---");
+                Console.WriteLine("타입: " + inner.GetType().Name);
+                Console.WriteLine("메시지: " + inner.Message);
+                inner = inner.InnerException;
+            }
+        }
+    }
+
+    static void Level1()
+    {
+        try
+        {
+            Level2();
+        }
+        catch (Exception ex)
+        {
+            throw new CustomAppException(
+                1001,
+                "시스템 오류가 발생했습니다. 관리자에게 문의하세요.",
+                "Level1에서 예외 발생",
+                ex
+            );
+        }
+    }
+
+    static void Level2()
+    {
+        try
+        {
+            Level3();
+        }
+        catch (Exception ex)
+        {
+            throw new CustomAppException(
+                2002,
+                "작업을 수행할 수 없습니다.",
+                "Level2에서 예외 발생",
+                ex
+            );
+        }
+    }
+
+    static void Level3()
+    {
+        try
+        {
+            throw new InvalidOperationException("데이터베이스 연결 실패");
+        }
+        catch (Exception ex)
+        {
+            throw new CustomAppException(
+                3003,
+                "서비스에 일시적인 문제가 있습니다.",
+                "Level3에서 예외 발생",
+                ex
+            );
+        }
+    }
+}
+
+
+
+
+Main에서 사용자 정의 예외 처리됨:
+에러 코드: 1001
+사용자 메시지: 시스템 오류가 발생했습니다. 관리자에게 문의하세요.
+시스템 메시지: Level1에서 예외 발생
+스택 트레이스:
+   at Program.Level1() in Program.cs:line XX
+   at Program.Main(String[] args) in Program.cs:line XX
+
+--- Inner Exception ---
+타입: CustomAppException
+메시지: Level2에서 예외 발생
+
+--- Inner Exception ---
+타입: CustomAppException
+메시지: Level3에서 예외 발생
+
+--- Inner Exception ---
+타입: InvalidOperationException
+메시지: 데이터베이스 연결 실패
+
+
+
+==========================================================================================================================
+
+
+using System;
+using System.IO;
+using Newtonsoft.Json;
+
+public class CustomAppException : Exception
+{
+    public int ErrorCode { get; }
+    public string UserMessage { get; }
+    public string SystemMessage { get; }
+
+    public CustomAppException(int errorCode, string userMessage, string systemMessage, Exception innerException = null)
+        : base(systemMessage, innerException)
+    {
+        ErrorCode = errorCode;
+        UserMessage = userMessage;
+        SystemMessage = systemMessage;
+    }
+
+    // 예외 객체를 JSON 형식으로 변환하는 메소드
+    public string ToJson()
+    {
+        return JsonConvert.SerializeObject(this, Formatting.Indented);
+    }
+}
+
+
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        try
+        {
+            Level1();
+        }
+        catch (CustomAppException ex)
+        {
+            // 예외를 JSON 형식으로 직렬화
+            string jsonException = ex.ToJson();
+
+            // 로그 파일 경로
+            string logFilePath = "error_log.txt";
+
+            // 예외 로그를 파일에 기록
+            LogToFile(jsonException, logFilePath);
+
+            // 콘솔에 예외 정보 출력
+            Console.WriteLine("Main에서 사용자 정의 예외 처리됨:");
+            Console.WriteLine("에러 코드: " + ex.ErrorCode);
+            Console.WriteLine("사용자 메시지: " + ex.UserMessage);
+            Console.WriteLine("시스템 메시지: " + ex.SystemMessage);
+            Console.WriteLine("스택 트레이스:\n" + ex.StackTrace);
+
+            // InnerException 출력 (선택)
+            Exception inner = ex.InnerException;
+            while (inner != null)
+            {
+                Console.WriteLine("\n--- Inner Exception ---");
+                Console.WriteLine("타입: " + inner.GetType().Name);
+                Console.WriteLine("메시지: " + inner.Message);
+                inner = inner.InnerException;
+            }
+        }
+    }
+
+    static void Level1()
+    {
+        try
+        {
+            Level2();
+        }
+        catch (Exception ex)
+        {
+            throw new CustomAppException(
+                1001,
+                "시스템 오류가 발생했습니다. 관리자에게 문의하세요.",
+                "Level1에서 예외 발생",
+                ex
+            );
+        }
+    }
+
+    static void Level2()
+    {
+        try
+        {
+            Level3();
+        }
+        catch (Exception ex)
+        {
+            throw new CustomAppException(
+                2002,
+                "작업을 수행할 수 없습니다.",
+                "Level2에서 예외 발생",
+                ex
+            );
+        }
+    }
+
+    static void Level3()
+    {
+        try
+        {
+            throw new InvalidOperationException("데이터베이스 연결 실패");
+        }
+        catch (Exception ex)
+        {
+            throw new CustomAppException(
+                3003,
+                "서비스에 일시적인 문제가 있습니다.",
+                "Level3에서 예외 발생",
+                ex
+            );
+        }
+    }
+
+    // 로그 파일에 예외 정보를 기록하는 메소드
+    static void LogToFile(string jsonException, string logFilePath)
+    {
+        try
+        {
+            // 로그 파일에 추가로 기록
+            File.AppendAllText(logFilePath, jsonException + "\n\n");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("로그 기록 실패: " + ex.Message);
+        }
+    }
+}
+
+
+
+{
+  "ClassName": "CustomAppException",
+  "Message": "Level1에서 예외 발생",
+  "Data": null,
+  "InnerException": {
+    "ClassName": "CustomAppException",
+    "Message": "Level2에서 예외 발생",
+    "Data": null,
+    "InnerException": {
+      "ClassName": "CustomAppException",
+      "Message": "Level3에서 예외 발생",
+      "Data": null,
+      "InnerException": {
+        "ClassName": "InvalidOperationException",
+        "Message": "데이터베이스 연결 실패",
+        "Data": null,
+        "InnerException": null,
+        "HelpURL": null,
+        "StackTraceString": "   at Program.Level3() in Program.cs:line 36\n   at Program.Level2() in Program.cs:line 26\n   at Program.Level1() in Program.cs:line 18\n   at Program.Main(String[] args) in Program.cs:line 9",
+        "RemoteStackTraceString": null,
+        "RemoteStackIndex": 0,
+        "ExceptionMethod": null,
+        "HResult": -2146233079,
+        "Source": "Program",
+        "WatsonBuckets": null
+      },
+      "HelpURL": null,
+      "StackTraceString": "   at Program.Level2() in Program.cs:line 28\n   at Program.Level1() in Program.cs:line 20\n   at Program.Main(String[] args) in Program.cs:line 9",
+      "RemoteStackTraceString": null,
+      "RemoteStackIndex": 0,
+      "ExceptionMethod": null,
+      "HResult": -2146233088,
+      "Source": "Program",
+      "WatsonBuckets": null
+    },
+    "HelpURL": null,
+    "StackTraceString": "   at Program.Level1() in Program.cs:line 20\n   at Program.Main(String[] args) in Program.cs:line 9",
+    "RemoteStackTraceString": null,
+    "RemoteStackIndex": 0,
+    "ExceptionMethod": null,
+    "HResult": -2146233088,
+    "Source": "Program",
+    "WatsonBuckets": null
+  },
+  "HelpURL": null,
+  "StackTraceString": "   at Program.Main(String[] args) in Program.cs:line 9",
+  "RemoteStackTraceString": null,
+  "RemoteStackIndex": 0,
+  "ExceptionMethod": null,
+  "HResult": -2146233088,
+  "Source": "Program",
+  "WatsonBuckets": null
+}
+
+
+===============================================================================================================================================================================
+
+
+
+
+
+Vite + React + TypeScript를 사용하여 Feature-Sliced Design (FSD) 아키텍처를 구현하려면 폴더 구조를 모듈화하고, 각 기능(Feature) 단위로 코드를 나누는 방식으로 구성해야 합니다. 이렇게 하면 코드의 확장성, 재사용성, 유지보수성이 좋아집니다.
+
+FSD는 각 "기능(feature)"을 중심으로 프로젝트를 나누며, 이를 통해 독립적인 개발과 배포가 가능해집니다.
+
+
+
+/src
+  ├── /app
+  │    ├── index.tsx                 # 애플리케이션 진입점
+  │    └── /store                    # 상태 관리
+  │        └── rootReducer.ts        # 루트 리듀서
+  │        └── store.ts              # Redux store 설정
+  │
+  ├── /features
+  │    ├── /user                    # user 기능 폴더
+  │    │    ├── /api                 # API 통신 관련
+  │    │    │    └── userApi.ts
+  │    │    ├── /components          # 컴포넌트
+  │    │    │    ├── UserProfile.tsx
+  │    │    │    └── UserList.tsx
+  │    │    ├── /model               # 기능 모델 및 로직
+  │    │    │    ├── userSlice.ts
+  │    │    │    └── userTypes.ts
+  │    │    └── /ui                  # UI 컴포넌트 (재사용 가능한 컴포넌트)
+  │    │         └── UserCard.tsx
+  │    │
+  │    └── /auth                     # auth 기능 폴더
+  │         ├── /components          # 로그인, 회원가입 관련 컴포넌트
+  │         └── /model               # 인증 관련 상태 및 로직
+  │
+  ├── /shared
+  │    ├── /api                      # 공통 API 설정
+  │    ├── /components               # 공통 UI 컴포넌트 (버튼, 입력창 등)
+  │    ├── /hooks                    # 공통 훅 (ex: useLocalStorage, useFetch)
+  │    └── /utils                    # 공통 유틸리티 함수 (ex: 날짜 포맷, API 요청 함수 등)
+  │
+  ├── /pages
+  │    ├── Home.tsx                  # 홈 페이지
+  │    └── About.tsx                 # About 페이지
+  │
+  ├── /styles
+  │    ├── global.css                # 전역 스타일
+  │    └── theme.css                 # 테마 스타일
+  │
+  └── /types
+       └── global.d.ts               # 전역 타입 정의
+
+
+✅ 설명
+/app: 애플리케이션의 루트 관련 코드 및 설정이 들어갑니다.
+
+index.tsx: 애플리케이션 진입점.
+
+/store: 상태 관리 관련 코드 (예: Redux).
+
+/features: 각 기능별로 나누어진 폴더로, 각 기능(feature)을 독립적으로 개발하고 관리할 수 있습니다.
+
+예: user, auth 기능.
+
+각 기능 폴더 안에는 api, components, model, ui 등 해당 기능과 관련된 코드들이 포함됩니다.
+
+/shared: 애플리케이션 전반에서 공통으로 사용되는 코드들.
+
+/api: 공통된 API 호출 함수.
+
+/components: 애플리케이션 곳곳에서 재사용되는 UI 컴포넌트들.
+
+/hooks: 재사용 가능한 커스텀 훅들.
+
+/utils: 유틸리티 함수들 (예: 데이터 변환, 날짜 포맷 등).
+
+/pages: 각 페이지 컴포넌트들이 들어갑니다.
+
+예: Home.tsx, About.tsx 등.
+
+/styles: 전역 스타일, 테마 및 CSS 파일을 포함합니다.
+
+/types: 프로젝트 전반에 걸쳐 사용되는 타입 정의 파일들을 모아둡니다.
+
+
+
+1. userSlice.ts (redux slice 예시)
+
+// src/features/user/model/userSlice.ts
+import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+
+interface UserState {
+  id: string | null;
+  name: string | null;
+  email: string | null;
+}
+
+const initialState: UserState = {
+  id: null,
+  name: null,
+  email: null,
+};
+
+const userSlice = createSlice({
+  name: 'user',
+  initialState,
+  reducers: {
+    setUser: (state, action: PayloadAction<UserState>) => {
+      state.id = action.payload.id;
+      state.name = action.payload.name;
+      state.email = action.payload.email;
+    },
+    clearUser: (state) => {
+      state.id = null;
+      state.name = null;
+      state.email = null;
+    },
+  },
+});
+
+export const { setUser, clearUser } = userSlice.actions;
+export default userSlice.reducer;
+
+
+2. UserProfile.tsx (컴포넌트 예시)
+
+// src/features/user/components/UserProfile.tsx
+import React from 'react';
+import { useSelector } from 'react-redux';
+import { RootState } from '../../app/store';
+
+const UserProfile = () => {
+  const user = useSelector((state: RootState) => state.user);
+
+  if (!user.id) return <p>No user data available</p>;
+
+  return (
+    <div>
+      <h2>{user.name}</h2>
+      <p>{user.email}</p>
+    </div>
+  );
+};
+
+export default UserProfile;
+
+
+3. store.ts (Redux store 설정 예시)
+
+// src/app/store.ts
+import { configureStore } from '@reduxjs/toolkit';
+import userReducer from '../features/user/model/userSlice';
+
+export const store = configureStore({
+  reducer: {
+    user: userReducer,
+  },
+});
+
+export type RootState = ReturnType<typeof store.getState>;
+export type AppDispatch = typeof store.dispatch;
