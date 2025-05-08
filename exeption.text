@@ -616,7 +616,102 @@ class Program
 
 
 
+using System;
+using System.Collections.Generic;
+using Newtonsoft.Json;
 
+public class AggregateAppException : Exception
+{
+    public int ErrorCode { get; }
+    public string UserMessage { get; }
+    public string SystemMessage { get; }
+    public List<CustomAppException> InnerExceptions { get; }
+
+    public AggregateAppException(int errorCode, string userMessage, string systemMessage, List<CustomAppException> innerExceptions)
+        : base(systemMessage)
+    {
+        ErrorCode = errorCode;
+        UserMessage = userMessage;
+        SystemMessage = systemMessage;
+        InnerExceptions = innerExceptions ?? new List<CustomAppException>();
+    }
+
+    public string ToJson()
+    {
+        return JsonConvert.SerializeObject(this, Formatting.Indented);
+    }
+
+    public override string ToString()
+    {
+        string innerDetails = "";
+        foreach (var ex in InnerExceptions)
+        {
+            innerDetails += $"\n - [Code:{ex.ErrorCode}] {ex.SystemMessage}";
+        }
+        return $"[ErrorCode: {ErrorCode}] {UserMessage}\nSystemMessage: {SystemMessage}\nDetails:{innerDetails}";
+    }
+}
+
+
+static void Level3()
+{
+    var exceptions = new List<CustomAppException>();
+
+    try
+    {
+        DoDatabaseWork();
+    }
+    catch (CustomAppException ex)
+    {
+        exceptions.Add(ex);
+    }
+
+    try
+    {
+        DoFileWork();
+    }
+    catch (CustomAppException ex)
+    {
+        exceptions.Add(ex);
+    }
+
+    if (exceptions.Count > 0)
+    {
+        throw new AggregateAppException(
+            3999,
+            "복수 작업 중 일부가 실패했습니다.",
+            "Level3에서 다중 예외 발생",
+            exceptions
+        );
+    }
+}
+
+
+try
+{
+    Level3();
+}
+catch (AggregateAppException aggEx)
+{
+    Console.WriteLine("🔴 복수 예외 발생:");
+    Console.WriteLine($"에러코드: {aggEx.ErrorCode}");
+    Console.WriteLine($"사용자 메시지: {aggEx.UserMessage}");
+    Console.WriteLine($"시스템 메시지: {aggEx.SystemMessage}");
+
+    foreach (var inner in aggEx.InnerExceptions)
+    {
+        Console.WriteLine("\n--- 내부 예외 ---");
+        Console.WriteLine($"에러 코드: {inner.ErrorCode}");
+        Console.WriteLine($"사용자 메시지: {inner.UserMessage}");
+        Console.WriteLine($"시스템 메시지: {inner.SystemMessage}");
+        Console.WriteLine($"원본 예외 메시지: {inner.InnerException?.Message}");
+    }
+
+    // 로그 파일 기록 (선택)
+    File.AppendAllText("aggregate_error_log.json", aggEx.ToJson() + "\n\n");
+}
+
+=========================================================================================================================
 
 Vite + React + TypeScript를 사용하여 Feature-Sliced Design (FSD) 아키텍처를 구현하려면 폴더 구조를 모듈화하고, 각 기능(Feature) 단위로 코드를 나누는 방식으로 구성해야 합니다. 이렇게 하면 코드의 확장성, 재사용성, 유지보수성이 좋아집니다.
 
