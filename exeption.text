@@ -490,14 +490,51 @@ class Program
     {
         try
         {
-            throw new InvalidOperationException("데이터베이스 연결 실패");
+            DoDatabaseWork();
+            DoFileWork();
         }
         catch (Exception ex)
         {
             throw new CustomAppException(
                 3003,
-                "서비스에 일시적인 문제가 있습니다.",
-                "Level3에서 예외 발생",
+                "서비스 처리 중 문제가 발생했습니다.",
+                "Level3 전체 작업 중 예외 발생",
+                ex
+            );
+        }
+    }
+
+    static void DoDatabaseWork()
+    {
+        try
+        {
+            // DB 작업
+            throw new InvalidOperationException("DB 연결 실패");
+        }
+        catch (Exception ex)
+        {
+            throw new CustomAppException(
+                3101,
+                "데이터베이스 처리에 실패했습니다.",
+                "DoDatabaseWork에서 예외 발생",
+                ex
+            );
+        }
+    }
+    
+    static void DoFileWork()
+    {
+        try
+        {
+            // 파일 작업
+            throw new IOException("파일 접근 오류");
+        }
+        catch (Exception ex)
+        {
+            throw new CustomAppException(
+                3102,
+                "파일 작업에 실패했습니다.",
+                "DoFileWork에서 예외 발생",
                 ex
             );
         }
