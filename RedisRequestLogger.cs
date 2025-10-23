@@ -1,4 +1,5 @@
 /*
+StackExchange.Redis 라이브러리를 사용합니다
 🧠 이 방식의 장점
 
 ✅ 여러 파드가 같은 큐(Redis List)에 메시지를 푸시 가능
