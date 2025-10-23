@@ -1,4 +1,10 @@
-/*요청을 큐에 담고 순차적으로 로그 파일에 기록하기*/
+/*
+요청을 큐에 담고 순차적으로 로그 파일에 기록하기
+1.ConcurrentQueue<string>: 여러 스레드에서 동시에 접근해도 안전한 큐
+2.AutoResetEvent: 새로운 요청이 들어왔을 때 백그라운드 스레드가 깨어나도록 함
+3.Task.Run(ProcessQueueAsync): 비동기 백그라운드 작업으로 큐를 지속적으로 처리
+4.File.AppendAllTextAsync(): 로그 파일에 비동기 방식으로 한 줄씩 추가
+*/
 using System;
 using System.Collections.Concurrent;
 using System.IO;
