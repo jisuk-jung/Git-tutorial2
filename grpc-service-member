@@ -1,0 +1,85 @@
+서버====================================================================================================================================================
+.proto 파일 (member.proto)  => 서버 및 클라이어트에 추가
+syntax = "proto3";
+
+option csharp_namespace = "MemberGrpc";
+
+package member;
+
+service MemberService {
+  rpc RegisterMember (RegisterMemberRequest) returns (RegisterMemberResponse);
+}
+
+message RegisterMemberRequest {
+  string email = 1;
+  string password = 2;
+  string name = 3;
+}
+
+message RegisterMemberResponse {
+  bool success = 1;
+  string message = 2;
+}
+======================================================================================
+using Grpc.Core;
+using MemberGrpc;
+
+namespace MemberGrpcServer.Services;
+
+public class MemberServiceImpl : MemberService.MemberServiceBase
+{
+    public override Task<RegisterMemberResponse> RegisterMember(
+        RegisterMemberRequest request,
+        ServerCallContext context)
+    {
+        // 실제로는 DB 저장, 중복 체크 등 수행
+        if (string.IsNullOrWhiteSpace(request.Email))
+        {
+            return Task.FromResult(new RegisterMemberResponse
+            {
+                Success = false,
+                Message = "Email is required"
+            });
+        }
+
+        return Task.FromResult(new RegisterMemberResponse
+        {
+            Success = true,
+            Message = $"Member '{request.Name}' registered successfully"
+        });
+    }
+}
+
+========================================================
+using MemberGrpcServer.Services;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddGrpc();
+
+var app = builder.Build();
+
+app.MapGrpcService<MemberServiceImpl>();
+app.MapGet("/", () => "gRPC Member Service running");
+
+app.Run();
+
+
+
+
+클라이언트============================================================================================================
+using Grpc.Net.Client;
+using MemberGrpc;
+
+var channel = GrpcChannel.ForAddress("https://localhost:5001");
+var client = new MemberService.MemberServiceClient(channel);
+
+var reply = await client.RegisterMemberAsync(new RegisterMemberRequest
+{
+    Email = "test@example.com",
+    Password = "1234",
+    Name = "홍길동"
+});
+
+Console.WriteLine($"Success: {reply.Success}");
+Console.WriteLine($"Message: {reply.Message}");
