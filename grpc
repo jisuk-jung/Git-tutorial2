@@ -40,9 +40,11 @@ app.Run();
 }
 
 //호출방법
-grpcurl -insecure localhost:5001 list
-grpcurl -insecure localhost:5001 mypackage.MyService/SayHello
+grpcurl -insecure localhost:7201 list
+grpcurl --insecure localhost:7201 greet.Greeter/SayHello
 grpcurl -plaintext -proto my_service.proto localhost:50051 list
+
+grpcurl -plaintext -proto Greeter.proto localhost:7201 list
 
 (선택) 브라우저 gRPC 호출 필요 시 (gRPC-Web)
 builder.Services.AddGrpc();
