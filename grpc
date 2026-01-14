@@ -42,6 +42,7 @@ app.Run();
 //호출방법
 grpcurl -insecure localhost:5001 list
 grpcurl -insecure localhost:5001 mypackage.MyService/SayHello
+grpcurl -plaintext -proto my_service.proto localhost:50051 list
 
 (선택) 브라우저 gRPC 호출 필요 시 (gRPC-Web)
 builder.Services.AddGrpc();
@@ -81,6 +82,7 @@ app.MapGrpcService<MyGrpcService>()
 Local (VS)	        HTTPS + HTTP/2
 K8s + Dapr	        HTTP + HTTP/2
 External	        Ingress TLS
+
 
 =================================================================================================================
 방법 1: DaprClient.InvokeMethodAsync를 사용한 호출 (권장)
