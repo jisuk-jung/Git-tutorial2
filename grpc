@@ -69,3 +69,24 @@ var options = new CallOptions(cancellationToken: CancellationToken.None, deadlin
 var reply = await client.SayHelloAsync(new HelloRequest { Name = "World" }, options);
 
 Console.WriteLine("Greeting: " + reply.Message);
+
+================================================================================================================================
+
+{
+  "Kestrel": {
+    "Endpoints": {
+      "Http": {
+        "Url": "http://localhost:5000",
+        "Protocols": "Http1"
+      },
+      "Grpc": {
+        "Url": "https://localhost:5001",
+        "Protocols": "Http2"
+      }
+    }
+  },
+  "Logging": {
+    // ... (기타 로깅 설정)
+  },
+  "AllowedHosts": "*"
+}
