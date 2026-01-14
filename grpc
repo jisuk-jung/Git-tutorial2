@@ -75,6 +75,13 @@ app.MapGrpcService<MyGrpcService>()
     }
   }
 }
+
+로컬 개발 vs 운영 정리
+환경	            프로토콜
+Local (VS)	        HTTPS + HTTP/2
+K8s + Dapr	        HTTP + HTTP/2
+External	        Ingress TLS
+
 =================================================================================================================
 방법 1: DaprClient.InvokeMethodAsync를 사용한 호출 (권장)
 Dapr .NET SDK는 InvokeMethodAsync 오버로드를 제공하여 Dapr의 서비스 호출 빌딩 블록을 통해 gRPC 서비스를 호출할 수 있도록 합니다. 이 방법은 Dapr의 이름 확인(name resolution), 추적(tracing), mTLS와 같은 기능을 활용할 수 있어 권장됩니다. 
