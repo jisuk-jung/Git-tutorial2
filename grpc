@@ -1,0 +1,71 @@
+방법 1: DaprClient.InvokeMethodAsync를 사용한 호출 (권장)
+Dapr .NET SDK는 InvokeMethodAsync 오버로드를 제공하여 Dapr의 서비스 호출 빌딩 블록을 통해 gRPC 서비스를 호출할 수 있도록 합니다. 이 방법은 Dapr의 이름 확인(name resolution), 추적(tracing), mTLS와 같은 기능을 활용할 수 있어 권장됩니다. 
+필요 패키지:
+Dapr.AspNetCore 또는 Dapr.Client
+
+
+using Dapr.Client;
+using GrpcServiceSample.Generated; // proto 파일에서 생성된 클라이언트 및 메시지 네임스페이스
+
+// DaprClient는 DI를 통해 주입받거나 직접 생성할 수 있습니다.
+// 예시에서는 DI를 사용했다고 가정합니다.
+// public class MyClientService
+// {
+//     private readonly DaprClient _daprClient;
+//
+//     public MyClientService(DaprClient daprClient) => _daprClient = daprClient;
+//
+//     public async Task InvokeGrpcServiceAsync(CancellationToken cancellationToken)
+//     {
+//         ...
+//     }
+// }
+
+// ... (메서드 내 코드)
+var deposit = new Transaction() // proto 파일에서 정의된 메시지 타입
+{
+    Id = "17",
+    Amount = 99
+};
+
+Console.WriteLine("Invoking grpc deposit");
+
+// DaprClient의 InvokeMethodGrpcAsync를 사용하여 원격 서비스 호출
+// "grpcsample"은 대상 Dapr 앱 ID, "deposit"은 대상 gRPC 메서드 이름
+var account = await client.InvokeMethodGrpcAsync<Transaction, Account>(
+    "grpcsample", // 대상 서비스의 Dapr App ID
+    "deposit",    // 대상 gRPC 서비스의 메서드 이름
+    deposit,      // 보낼 요청 메시지
+    cancellationToken);
+
+Console.WriteLine("Returned: id:{0} | Balance:{1}", account.Id, account.Balance);
+=========================================================================================================================
+
+방법 2: gRPC 채널 및 생성된 클라이언트 직접 사용
+특정 고급 시나리오나 저수준 통신이 필요한 경우, DaprClient.CreateInvocationInvoker를 사용하여 gRPC 채널을 구성하고, 그 채널을 통해 생성된 gRPC 클라이언트를 직접 사용할 수 있습니다. 
+클라이언트 코드 예제:
+
+csharp
+using Grpc.Net.Client;
+using Grpc.Core;
+// GrpcGreeterClient는 proto 파일로부터 생성된 클라이언트 스텁입니다.
+using GrpcGreeter; 
+
+// 대상 서비스의 Dapr 앱 ID 및 엔드포인트 설정
+var myAppId = "grpcserverapp";
+// Dapr 사이드카 gRPC 엔드포인트 (기본값: 50001)
+var daprGrpcEndpoint = "http://localhost:50001"; 
+
+// Dapr 인보케이션 인보커(invoker) 생성
+var invoker = DaprClient.CreateInvocationInvoker(appId: myAppId, daprEndpoint: daprGrpcEndpoint);
+
+// 인보커를 사용하여 gRPC 클라이언트 생성
+var client = new Greeter.GreeterClient(invoker);
+
+// gRPC 호출 옵션 설정
+var options = new CallOptions(cancellationToken: CancellationToken.None, deadline: DateTime.UtcNow.AddSeconds(5));
+
+// gRPC 메서드 호출
+var reply = await client.SayHelloAsync(new HelloRequest { Name = "World" }, options);
+
+Console.WriteLine("Greeting: " + reply.Message);
