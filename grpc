@@ -1,3 +1,81 @@
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// 🔑 Kestrel 설정 (HTTP/1.1 + HTTP/2 동시 허용)
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ListenLocalhost(5001, listenOptions =>
+    {
+        listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
+        listenOptions.UseHttps(); // 로컬 HTTPS 필수/운영에서는 제외 시킴
+    });
+});
+
+// 서비스 등록
+builder.Services.AddControllers();
+builder.Services.AddGrpc();
+
+var app = builder.Build();
+
+// 파이프라인
+app.UseHttpsRedirection();
+
+app.MapControllers();              // REST
+app.MapGrpcService<MyGrpcService>(); // gRPC
+
+app.Run();
+=====================================
+{
+  "profiles": {
+    "MyApp": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "applicationUrl": "https://localhost:5001",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}
+
+//호출방법
+grpcurl -insecure localhost:5001 list
+grpcurl -insecure localhost:5001 mypackage.MyService/SayHello
+
+(선택) 브라우저 gRPC 호출 필요 시 (gRPC-Web)
+builder.Services.AddGrpc();
+builder.Services.AddGrpcWeb();
+
+app.UseGrpcWeb();
+
+app.MapGrpcService<MyGrpcService>()
+   .EnableGrpcWeb();
+
+개발시
+// appsettings.Development.json
+{
+  "Kestrel": {
+    "Endpoints": {
+      "Https": {
+        "Url": "https://localhost:5001"
+      }
+    }
+  }
+}
+
+운영배포
+// appsettings.Production.json
+{
+  "Kestrel": {
+    "Endpoints": {
+      "Http": {
+        "Url": "http://0.0.0.0:5000"
+      }
+    }
+  }
+}
+=================================================================================================================
 방법 1: DaprClient.InvokeMethodAsync를 사용한 호출 (권장)
 Dapr .NET SDK는 InvokeMethodAsync 오버로드를 제공하여 Dapr의 서비스 호출 빌딩 블록을 통해 gRPC 서비스를 호출할 수 있도록 합니다. 이 방법은 Dapr의 이름 확인(name resolution), 추적(tracing), mTLS와 같은 기능을 활용할 수 있어 권장됩니다. 
 필요 패키지:
@@ -90,3 +168,5 @@ Console.WriteLine("Greeting: " + reply.Message);
   },
   "AllowedHosts": "*"
 }
+
+
