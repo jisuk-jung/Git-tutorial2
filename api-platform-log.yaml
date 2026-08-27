@@ -1,0 +1,418 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-platform-log-secret
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: "apiplatformagent@@"
+  APIPLATFORMDBA_PASSWORD: "apiplatformagent@@"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-platform-log-config
+data:
+  postgresql.conf: |
+    listen_addresses = '*'
+    port = 5432
+    shared_preload_libraries = 'pg_cron'
+    cron.database_name = 'postgres'
+
+    max_connections = 200
+    password_encryption = 'scram-sha-256'
+
+    logging_collector = on
+    log_destination = 'stderr'
+    log_connections = on
+    log_disconnections = on
+
+    timezone = 'Asia/Seoul'
+
+  pg_hba.conf: |
+    local   all   postgres   scram-sha-256
+    local   all   all        scram-sha-256
+
+    host    all   all   0.0.0.0/0   scram-sha-256
+    host    all   all   ::/0        scram-sha-256
+
+  01-account.sql: |
+    \set ON_ERROR_STOP on
+    ALTER USER postgres
+        WITH PASSWORD 'apiplatformagent@@';
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_roles
+            WHERE rolname = 'apiplatformdba'
+        )
+        THEN
+            CREATE ROLE apiplatformdba LOGIN PASSWORD 'apiplatformagent@@';
+        ELSE
+            ALTER ROLE apiplatformdba
+                WITH LOGIN
+                PASSWORD 'apiplatformagent@@';
+        END IF;
+    END
+    $$;
+
+    SELECT format(
+        'CREATE DATABASE apip OWNER apiplatformdba'
+    )
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM pg_database
+        WHERE datname = 'apip'
+    )
+    \gexec
+
+    GRANT ALL PRIVILEGES ON DATABASE apip TO apiplatformdba;
+
+  02-table.sql: |
+    \set ON_ERROR_STOP on
+
+    \connect apip
+
+    CREATE TABLE IF NOT EXISTS public.mf_log
+    (
+        id          BIGINT GENERATED ALWAYS AS IDENTITY,
+        log_time    TIMESTAMP NOT NULL,
+        level       VARCHAR(20),
+        message     TEXT,
+        service     VARCHAR(100)
+    )
+    PARTITION BY RANGE (log_time);
+
+    CREATE TABLE IF NOT EXISTS public.dac_log
+    (
+        id          BIGINT GENERATED ALWAYS AS IDENTITY,
+        log_time    TIMESTAMP NOT NULL,
+        level       VARCHAR(20),
+        message     TEXT,
+        service     VARCHAR(100)
+    )
+    PARTITION BY RANGE (log_time);
+
+    CREATE TABLE IF NOT EXISTS public.dac_log_sql
+    (
+        id          BIGINT GENERATED ALWAYS AS IDENTITY,
+        log_time    TIMESTAMP NOT NULL,
+        query_text  TEXT,
+        duration_ms BIGINT,
+        service     VARCHAR(100)
+    )
+    PARTITION BY RANGE (log_time);
+
+    CREATE TABLE IF NOT EXISTS public.dac_session_manager
+    (
+        id            BIGINT GENERATED ALWAYS AS IDENTITY,
+        log_time      TIMESTAMP NOT NULL,
+        session_id    VARCHAR(200),
+        user_name     VARCHAR(100),
+        status        VARCHAR(50)
+    )
+    PARTITION BY RANGE (log_time);
+
+    CREATE TABLE IF NOT EXISTS public.mf_log_default
+        PARTITION OF public.mf_log DEFAULT;
+
+    CREATE TABLE IF NOT EXISTS public.dac_log_default
+        PARTITION OF public.dac_log DEFAULT;
+
+    CREATE TABLE IF NOT EXISTS public.dac_log_sql_default
+        PARTITION OF public.dac_log_sql DEFAULT;
+
+    CREATE TABLE IF NOT EXISTS public.dac_session_manager_default
+        PARTITION OF public.dac_session_manager DEFAULT;
+
+    ALTER TABLE public.mf_log
+        OWNER TO apiplatformdba;
+
+    ALTER TABLE public.dac_log
+        OWNER TO apiplatformdba;
+
+    ALTER TABLE public.dac_log_sql
+        OWNER TO apiplatformdba;
+
+    ALTER TABLE public.dac_session_manager
+        OWNER TO apiplatformdba;
+
+  03-procedure.sql: |
+    \set ON_ERROR_STOP on
+
+    \connect apip
+
+    CREATE OR REPLACE PROCEDURE public.create_buffer_date(
+        p_table_name TEXT,
+        p_days       INTEGER
+    )
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+        v_date        DATE;
+        v_next_date   DATE;
+        v_partition   TEXT;
+        v_sql         TEXT;
+        i             INTEGER;
+    BEGIN
+        IF p_days <= 0 THEN
+            RAISE EXCEPTION
+                'p_days must be greater than zero';
+        END IF;
+
+        IF p_table_name NOT IN
+        (
+            'mf_log',
+            'dac_log',
+            'dac_log_sql',
+            'dac_session_manager'
+        )
+        THEN
+            RAISE EXCEPTION
+                'Unsupported partition table: %',
+                p_table_name;
+        END IF;
+
+        FOR i IN 0..(p_days - 1)
+        LOOP
+            v_date := CURRENT_DATE + i;
+            v_next_date := v_date + 1;
+
+            v_partition :=
+                p_table_name || '_' ||
+                to_char(v_date, 'YYYY-MM-DD');
+
+            IF NOT EXISTS
+            (
+                SELECT 1
+                FROM pg_class c
+                JOIN pg_namespace n
+                  ON n.oid = c.relnamespace
+                WHERE c.relname = v_partition
+                  AND n.nspname = 'public'
+            )
+            THEN
+                v_sql := format(
+                    'CREATE TABLE %I PARTITION OF public.%I
+                     FOR VALUES FROM (%L) TO (%L)',
+                    v_partition,
+                    p_table_name,
+                    v_date,
+                    v_next_date
+                );
+
+                EXECUTE v_sql;
+            END IF;
+        END LOOP;
+    END;
+    $$;
+
+    CREATE OR REPLACE PROCEDURE public.all_create_buffer_date()
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+        CALL public.create_buffer_date('mf_log', 7);
+        CALL public.create_buffer_date('dac_log', 7);
+        CALL public.create_buffer_date('dac_log_sql', 7);
+        CALL public.create_buffer_date('dac_session_manager', 7);
+    END;
+    $$;
+
+    CALL public.all_create_buffer_date();
+
+    GRANT EXECUTE
+        ON PROCEDURE public.create_buffer_date(TEXT, INTEGER)
+        TO apiplatformdba;
+
+    GRANT EXECUTE
+        ON PROCEDURE public.all_create_buffer_date()
+        TO apiplatformdba;
+
+  04-scheduler.sql: |
+    \set ON_ERROR_STOP on
+
+    \connect postgres
+
+    CREATE EXTENSION IF NOT EXISTS pg_cron;
+    CREATE EXTENSION IF NOT EXISTS postgres_fdw;
+
+    SELECT cron.schedule_in_database(
+        'api-platform-log-create-buffer',
+        '0 0 * * *',
+        'CALL public.all_create_buffer_date();',
+        'apip'
+    )
+    WHERE NOT EXISTS
+    (
+        SELECT 1
+        FROM cron.job
+        WHERE jobname = 'api-platform-log-create-buffer'
+    );
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: api-platform-log-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-platform-log-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: api-platform-log
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-platform-log
+spec:
+  replicas: 1
+
+  strategy:
+    type: Recreate
+
+  selector:
+    matchLabels:
+      app: api-platform-log
+
+  template:
+    metadata:
+      labels:
+        app: api-platform-log
+
+    spec:
+      terminationGracePeriodSeconds: 60
+
+      securityContext:
+        fsGroup: 999
+
+      containers:
+        - name: api-platform-log
+          image: YOUR-PRIVATE-REGISTRY/postgres:18.4-pgcron
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: api-platform-log-secret
+                  key: POSTGRES_PASSWORD
+
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          args:
+            - "-c"
+            - "config_file=/etc/postgresql/postgresql.conf"
+            - "-c"
+            - "hba_file=/etc/postgresql/pg_hba.conf"
+
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+
+            - name: postgres-config
+              mountPath: /etc/postgresql/postgresql.conf
+              subPath: postgresql.conf
+              readOnly: true
+
+            - name: postgres-config
+              mountPath: /etc/postgresql/pg_hba.conf
+              subPath: pg_hba.conf
+              readOnly: true
+
+            - name: postgres-config
+              mountPath: /docker-entrypoint-initdb.d/01-account.sql
+              subPath: 01-account.sql
+              readOnly: true
+
+            - name: postgres-config
+              mountPath: /docker-entrypoint-initdb.d/02-table.sql
+              subPath: 02-table.sql
+              readOnly: true
+
+            - name: postgres-config
+              mountPath: /docker-entrypoint-initdb.d/03-procedure.sql
+              subPath: 03-procedure.sql
+              readOnly: true
+
+            - name: postgres-config
+              mountPath: /docker-entrypoint-initdb.d/04-scheduler.sql
+              subPath: 04-scheduler.sql
+              readOnly: true
+
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U postgres -d postgres
+            failureThreshold: 30
+            periodSeconds: 5
+            timeoutSeconds: 5
+
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U postgres -d postgres
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U postgres -d postgres
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    pg_ctl \
+                      -D "$PGDATA" \
+                      -m fast \
+                      stop
+
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: api-platform-log-pvc
+
+        - name: postgres-config
+          configMap:
+            name: api-platform-log-config
